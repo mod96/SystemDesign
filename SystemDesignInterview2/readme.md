@@ -4,7 +4,7 @@
   - Chapter 2. Nearby Friends
   - Chapter 3. Google Maps
 - Loosely coupled message queue System
-  - Chapter 4. Distributed Message Queue
+  - [Chapter 4. Distributed Message Queue](#chapter-4-distributed-message-queue)
   - Chapter 5. Metrics Monitoring and Alert System
   - Chapter 6. Ad click Event Aggregation
 - Reservation System
@@ -19,6 +19,9 @@
   - Chapter 11. Payment System
   - Chapter 12. Digital Wallet
   - Chapter 13. Stock Exchange
+
+
+# Chapter 4. Distributed Message Queue
 
 # Chapter 9. S3-like Object Storage
 
@@ -132,10 +135,59 @@ We save checksum with object, and check if that object is corrupted.
 
 ### Metadata data model
 
+Metadata Service must support these three queries: 
+1. Find the object ID by object name
+2. Insert and delete an object by object name
+3. List objects in a bucket sharing the same prefix
+<p align="center">
+    <img src="imgs/9_12.PNG" width="40%" />
+</p>
+
+Bucket table is read intensive. So we spread the read load among multiple database replicas.
+
+Object table is both read/write intensive. We should shard by (bucket_name, object_name) because most of the metadata operations are based on the object URI, which contains (bucket_name, object_name). 
+
 ### Listing objects in a bucket
+
+Object storage arranges file in a flat structure instead of a hierarchy, like a file system. But it supports hierarchy-like access:
+
+```
+s3://bucket-name/this/is/not/a/folder/file.txt
+
+Bucket name: bucket-name
+Object name: this/is/not/a/folder/file.txt
+```
+To provide pagination of listing objects, we could make separate table sharded with bucket id. This will not have optimal performance, but it greatly simplifies the implementation.
 
 ### Object versioning
 
+If `PUT` request comes:
+- without `enable_versioning`, old version's metadata is replaced by the new version in the metadata store. Old version's document is marked as deleted, and garbage collector will reclaim that storage space. (same for versioning's `DELETE`)
+- with `enable_versioning`, it just adds new document and metadata with new version.
+
+<p align="center">
+    <img src="imgs/9_13.PNG" width="70%" />
+</p>
+
+
 ### Optimizing uploads of large files
 
+For large objects, we can provide `multipart upload` scheme.
+
+<p align="center">
+    <img src="imgs/9_14.PNG" width="45%" />
+</p>
+1~2 : Client calls object storage to initiate multipart upload. Server returns uploadID
+3~4 : Client splits a file and start uploading with Part's ID and uploadID. Server returns ETag(checksum) for that file
+5~6 : Client sends 'complete' message with uploadID, pairs of Part's ID and ETag. Server reassembles the object.
+
+One problem is that splitted parts are no longer useful after reassemble. To solve this, gc must be implemented.
+
 ### Garbage collection
+
+<p align="center">
+    <img src="imgs/9_15.PNG" width="60%" />
+    <img src="imgs/9_16.PNG" width="70%" />
+</p>
+
+To avoid creating a lot of small files, gc waits until there are a large number of read-only files to compact, and makes many read-only files into a few large new files.
