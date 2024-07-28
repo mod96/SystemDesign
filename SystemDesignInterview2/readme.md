@@ -12,7 +12,7 @@
 - Email System
   - Chapter 8. Distributed Email Service
 - Data Storage
-  - [Chapter 9. S3-like Object Storage](#Chapter-9.-S3-like-Object-Storage)
+  - [Chapter 9. S3-like Object Storage](#chapter-9-S3-like-Object-Storage)
 - Game System
   - Chapter 10. Real-time Gaming Leaderboard
 - Currency Exchange Integrity
@@ -23,6 +23,104 @@
 
 # Chapter 4. Distributed Message Queue
 
+It's almost just explaining kafka. Strictly speaking, Apache Kafka and Pulsar are not **message queues** as they are **event streaming platforms**. However, there is a convergence of features that starts to blur the distinction between message queus.
+
+<p align="center">
+    <img src="imgs/4_1.PNG" width="50%" />
+</p>
+
+## 4.1. FR & NFR
+
+### FR
+
+- Producers produce messages / Consumers consume messages(~KB)
+- Messages can be consumed repeatedly or only once
+- Historical data can be truncated
+- Can deliver messages in the order they were added to the queue
+- Data delivery semantics (at least once, at most once, exactly once)
+
+### NFR
+
+- Can choose high throuput vs low latency
+- Scalable (distributed) so that fault tolerance
+- Persistent and durable data
+
+## 4.2. Propose High-level Design
+
+### 4.2.1. Point-to-Point vs Publish-subscribe
+
+In a **point-to-point** model, a message is sent to a queue and consumed by one and only one consumer. Once the consumer acknowledges that a message is consumed, it is removed from the queue. Meanwhile, **pub-sub** model, a message is sent to a topic and received by the consumers subscribing to this topic. Our project supports both models (if we put all consumers in the same consumer group, it's point-to-point model)
+
+<p align="center">
+    <img src="imgs/4_2.PNG" width="50%" />
+</p>
+
+As we partition a topic, delivery order can be broken if many consumers consume the same partition. So a single partition can only be consumed by one consumer in the same group. If the number of consumers of a group is larger than the number of partitions of a topic, some consumers will not get data from this topic. (e.g. Consumer-3 cannot get data from Topic-B)
+
+To maintain these complex structure and configurations, we introduce high level design as below:
+
+<p align="center">
+    <img src="imgs/4_3.PNG" width="70%" />
+</p>
+
+- Broker: holds multiple partitions. A partition holds a subset of messages for a topic
+- Data storage: messages are persisted in data storage in partitions
+- State storage: manages consumer states
+- Metadata storage: manages configuration and properties of topics
+- Coordination service
+  - Service discovery: which brokers are alive
+  - Leader election: one of the brokers is selected as the active controller (ZooKeeper/etcd)
+
+
+
+## 4.3. Design Deep Dive
+
+### 4.3.1. Data storage, I/O efficiency
+
+Message's traffice pattern is write-heavy, read-heavy, almost no delete, and predominantly sequential read/write access. Instead of database solution that is hard to design our access patterns at a large scale, we use **WAL**(Write-ahead log).
+
+A new message is appended to the tail of a segment. When the active segment reaches a certain size, a new active segment is created to receive new messages, and the currently active segment becomes inactive, like the rest of the non-active segments.
+
+<p align="center">
+    <img src="imgs/4_4.PNG" width="70%" />
+</p>
+
+The data structure of a message is key to high throughput. It defines the contract between the producers, message queue, and consumers. `key` field determines which partition the message goes.
+
+<p align="center">
+    <img src="imgs/4_5.PNG" width="25%" />
+</p>
+
+- key is not unique. Message goes to the partition `hash(key) % numPartitions`
+- offset: the position of the message in the partition
+- CRC: Cyclic redundancy check to ensure the integrity of raw data
+
+
+Small I/O is an enemy of high throughput. So, wherever possible, our design encourages **batching**. But there is a tradeoff between throughput and latency. If the system is deployed as a traditional message queue where latency might be more important, the system could be turned to use a smaller batch size. Disk performance will suffer in this use case. If tuned for throuput, there might need to be a higher number of partitions per topic to make up for the slower sequential disk write throughput.
+
+
+### 4.3.2. Producer flow
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Chapter 9. S3-like Object Storage
 
 Object Storage, Virtual cluster map, Erasure coding, Correctness verification, Versioning, Multipart upload, Garbage collection
@@ -31,7 +129,7 @@ Object Storage, Virtual cluster map, Erasure coding, Correctness verification, V
     <img src="imgs/9_2.PNG" width="70%" />
 </p>
 
-## Step 1. FR & NFR
+## 9.1. FR & NFR
 
 ### FR
 
@@ -48,7 +146,7 @@ Object Storage, Virtual cluster map, Erasure coding, Correctness verification, V
 - availability 4 nines (99.99%)
 - Reduce storage costs while maintaining high degree of reliability and performance
 
-## Step 2. Propose High-level Design
+## 9.2. Propose High-level Design
 
 Objects stored inside of object storage are immutable.
 Like key-value store, object storage retrieves object data using objects' id.
@@ -66,9 +164,9 @@ High level design looks like:
 </p>
 
 
-## Step 3. Design Deep Dive
+## 9.3. Design Deep Dive
 
-### Data Store
+### 9.3.1. Data Store
 
 #### services
 <p align="center">
@@ -133,7 +231,7 @@ We save checksum with object, and check if that object is corrupted.
 </p>
 
 
-### Metadata data model
+### 9.3.2. Metadata data model
 
 Metadata Service must support these three queries: 
 1. Find the object ID by object name
@@ -147,7 +245,7 @@ Bucket table is read intensive. So we spread the read load among multiple databa
 
 Object table is both read/write intensive. We should shard by (bucket_name, object_name) because most of the metadata operations are based on the object URI, which contains (bucket_name, object_name). 
 
-### Listing objects in a bucket
+### 9.3.3. Listing objects in a bucket
 
 Object storage arranges file in a flat structure instead of a hierarchy, like a file system. But it supports hierarchy-like access:
 
@@ -159,7 +257,7 @@ Object name: this/is/not/a/folder/file.txt
 ```
 To provide pagination of listing objects, we could make separate table sharded with bucket id. This will not have optimal performance, but it greatly simplifies the implementation.
 
-### Object versioning
+### 9.3.4. Object versioning
 
 If `PUT` request comes:
 - without `enable_versioning`, old version's metadata is replaced by the new version in the metadata store. Old version's document is marked as deleted, and garbage collector will reclaim that storage space. (same for versioning's `DELETE`)
@@ -170,7 +268,7 @@ If `PUT` request comes:
 </p>
 
 
-### Optimizing uploads of large files
+### 9.3.5. Optimizing uploads of large files
 
 For large objects, we can provide `multipart upload` scheme.
 
@@ -183,7 +281,7 @@ For large objects, we can provide `multipart upload` scheme.
 
 One problem is that splitted parts are no longer useful after reassemble. To solve this, gc must be implemented.
 
-### Garbage collection
+### 9.3.6. Garbage collection
 
 <p align="center">
     <img src="imgs/9_15.PNG" width="60%" />
