@@ -12,7 +12,7 @@
 - Email System
   - Chapter 8. Distributed Email Service
 - Data Storage
-  - [Chapter 9. S3-like Object Storage](#chapter-9-S3-like-Object-Storage)
+  - [Chapter 9. S3-like Object Storage](#chapter-9-s3-like-object-storage)
 - Game System
   - Chapter 10. Real-time Gaming Leaderboard
 - Currency Exchange Integrity
@@ -101,23 +101,43 @@ Small I/O is an enemy of high throughput. So, wherever possible, our design enco
 
 ### 4.3.2. Producer flow
 
+Each partition could be replicated. And one of them is the leader replica. Producer should send messages to the broker which holds the leader replica of one of the partitions(determined by the key of the message and producer's logic) of the topic. To do so, producer's traffic must be routed somehow. So we introduce routing layer. Also, to in crease throughput, we introduce buffer.
+
+<p align="center">
+    <img src="imgs/4_6.PNG" width="45%" />
+</p>
 
 
+### 4.3.3. Consumer flow
+
+<p align="center">
+    <img src="imgs/4_7.PNG" width="60%" />
+</p>
+
+An important question to answer is whether brokers should push data to consumers, or if consumers should pull data from the brokers. **Push model** has low latency, but if the rate of consumption falls below the rate of production, consumers could be overwhelmed. **Pull model**, in contrast, consumers control the consumption rate. If the rate of consumption falls below the rate of production, we can scale out the consumers, or simply catch up when it can. When there is no message in the broker, a consumer might still keep pulling data, wasting resources. But long polling mode, which allows pulls to wait a specified amount of time for new messages, overcomes this.
+
+<p align="center">
+    <img src="imgs/4_8.PNG" width="70%" />
+</p>
+
+### 4.3.4. State storage, Metadata storage
+
+**State storage** holds the mapping between partitions and consumers, the last consumed offsets of consumer groups for each partition. **Metadata storage** stores the configuration and properties of topics, including a number of partitions, retention period, and distribution of replicas. These datas are accessed read/write frequently, but volume is not high. Access pattern is random read/write, and data consistency is important. For this reason, we use **ZooKeeper** for State & Metadata storage.
+
+<p align="center">
+    <img src="imgs/4_9.PNG" width="70%" />
+</p>
 
 
+### 4.3.5. Others: ISR, Delivery
 
+**ISR** reflects the trade-off between performance and durability. If producers don't want to lose any messages, the safest way to do that is to ensure all replicas are already in sync before sending an acknowledgment. But a slow replica will cause the whole partition to become slow or unavailable. (ACK=all, 1, 0)
 
-
-
-
-
-
-
-
-
-
-
-
+|   |producer|consumer|
+|---|---|---|
+|At most once|ACK=0|auto commit|
+|At least once|ACK=1/all|commit after proceeded|
+|Exactly once|Idempotent(kafka support this)|Idempotent|
 
 
 
