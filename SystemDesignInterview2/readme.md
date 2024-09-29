@@ -1,4 +1,5 @@
 # Index
+
 - Geolocational Relation data services
   - Chapter 1. Proximity Service
   - Chapter 2. Nearby Friends
@@ -6,7 +7,7 @@
 - Loosely coupled message queue System
   - [Chapter 4. Distributed Message Queue](4.distributed-message-queue.md)
   - [Chapter 5. Metrics Monitoring and Alert System](5.metrics-monitoring-and-alerting-system.md)
-  - Chapter 6. Ad click Event Aggregation
+  - [Chapter 6. Ad click Event Aggregation](6.ad-click-event-aggregation.md)
 - Reservation System
   - Chapter 7. Hotel Reservation System
 - Email System
